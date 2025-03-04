@@ -17,7 +17,7 @@
 from typing import Dict, List, Optional, Union
 
 import numpy as np
-
+import random
 from transformers.image_processing_utils import BaseImageProcessor, BatchFeature, get_size_dict
 from transformers.image_transforms import convert_to_rgb, resize, to_channel_dimension_format
 from transformers.image_utils import (
@@ -248,7 +248,7 @@ class ViTImageProcessor(BaseImageProcessor):
 
         # All transformations expect numpy arrays.
         images = [to_numpy_array(image) for image in images]
-
+        
         if do_rescale and is_scaled_image(images[0]):
             logger.warning_once(
                 "It looks like you are trying to rescale already rescaled images. If the input"
@@ -367,10 +367,34 @@ class CharImageProcessor(BaseImageProcessor):
         )
     
 
-    def get_char_images(self,image = None,size_dict = None, resample = None, input_data_format = None):
-
+    def get_char_images(self,image = None):
+        if image is None:
+            raise ValueError("Image input cannot be None")
         
-        return [np.random.rand(3, 10,30),np.random.rand(3, 15,20), np.random.rand(3, 20,40), np.random.rand(3, 16,48),np.random.rand(3, 27,48) ]
+        _, height, width = image.shape  # Lấy chiều cao và chiều rộng của ảnh
+        
+        cropped_images = []
+        
+
+
+        # for _ in range(5):  # Cắt 5 ảnh
+        #     crop_h = random.randint(height // 4, height)  # Chiều cao ngẫu nhiên từ 1/4 đến full height
+        #     crop_w = random.randint(width // 4, width//2)  # Chiều rộng ngẫu nhiên từ 1/4 đến full width
+
+        #     # Chọn ngẫu nhiên điểm bắt đầu để crop
+        #     start_h = random.randint(0, height - crop_h)
+        #     start_w = random.randint(0, width - crop_w)
+
+        #     cropped_image = image[:, start_h:start_h + crop_h, start_w:start_w + crop_w]
+        #     cropped_images.append(cropped_image)
+        cropped_images.append(image[:,:,0:38])
+        cropped_images.append(image[:,:,40:50])
+        cropped_images.append(image[:,:,50:75])
+        cropped_images.append(image[:,:,75:95])
+        cropped_images.append(image[:,:,95:135])
+    
+        return cropped_images
+        # return [np.random.rand(3, 10,30),np.random.rand(3, 15,20), np.random.rand(3, 20,40), np.random.rand(3, 16,48),np.random.rand(3, 27,48) ]
     
     def _padding_square_image(self, image, value=255):
         """
@@ -416,13 +440,14 @@ class CharImageProcessor(BaseImageProcessor):
     def concatenate_image(
         self, 
         images, 
-        image_size = [16,480],
+        image_size = None,
+        padding_value = 255,
         ):
         # Resize all images to char_image_size
         
         
         # Create a blank (white) image with the specified size (image_size)
-        blank_image = np.ones((3, image_size[0], image_size[1]))  # (Channels, Height, Width), white image
+        blank_image = np.ones((3, image_size[0], image_size[1]))*padding_value  # (Channels, Height, Width), white image
         current_x = 0
         # Iterate over the resized images and place them into the blank image
         for img in images:
@@ -441,21 +466,38 @@ class CharImageProcessor(BaseImageProcessor):
         self,
         image = None,
         char_image_size =  [16,16], 
-        image_size = [16,480],
+        image_size = [16,96],
         resample = None,
         input_data_format = None,
+        padding_value = 255
         ):
 
         char_images = self.get_char_images(image)
 
-        padded_images = self.padding_images(char_images, value=1)
+        padded_images = self.padding_images(char_images, value=padding_value)
         resized_images = [
             self.resize(image=image, size=char_image_size, resample=resample, input_data_format=input_data_format)
             for image in padded_images
         ]
-        res = self.concatenate_image(resized_images,image_size = [16,480])
+        res = self.concatenate_image(resized_images,image_size = image_size)
         return res
-
+    def format_input(
+        self,
+        images,
+    ):
+        converted_images = []
+        for img in images:
+            if img.ndim != 3:
+                raise ValueError(f"Each image must be 3-dimensional (channels, height, width) or (height, width, channels) but found {img.ndim}.")
+            if img.shape[0] == 3:
+                converted_images.append(img)
+            elif img.shape[-1] == 3:
+                # Transpose from (height, width, channels) to (channels, height, width).
+                img_converted = np.transpose(img, (2, 0, 1))
+                converted_images.append(img_converted)
+            else:
+                raise ValueError("Image does not contain exactly 3 channels.")
+        return converted_images
     @filter_out_non_signature_kwargs()
     def preprocess(
         self,
@@ -473,6 +515,17 @@ class CharImageProcessor(BaseImageProcessor):
         input_data_format: Optional[Union[str, ChannelDimension]] = None,
         do_convert_rgb: Optional[bool] = None,
     ):
+        
+        
+        do_resize = do_resize if do_resize is not None else self.do_resize
+        do_rescale = do_rescale if do_rescale is not None else self.do_rescale
+        do_normalize = do_normalize if do_normalize is not None else self.do_normalize
+        resample = resample if resample is not None else self.resample
+        rescale_factor = rescale_factor if rescale_factor is not None else self.rescale_factor
+        image_mean = image_mean if image_mean is not None else self.image_mean
+        image_std = image_std if image_std is not None else self.image_std
+        do_convert_rgb = do_convert_rgb if do_convert_rgb is not None else self.do_convert_rgb
+        
         size = size if size is not None else self.size
         size_dict = get_size_dict(size)
 
@@ -488,6 +541,10 @@ class CharImageProcessor(BaseImageProcessor):
 
         # All transformations expect numpy arrays.
         images = [to_numpy_array(image) for image in images]
+
+        images = self.format_input(images)
+        print(images[0].shape)
+
         if do_rescale and is_scaled_image(images[0]):
             logger.warning_once(
                 "It looks like you are trying to rescale already rescaled images. If the input"
@@ -497,16 +554,23 @@ class CharImageProcessor(BaseImageProcessor):
         if input_data_format is None:
             # We assume that all images have the same channel dimension format.
             input_data_format = infer_channel_dimension_format(images[0])
-        if do_resize:
-            images = [
-                self.resize(image=image, size=size_dict, resample=resample, input_data_format=input_data_format)
-                for image in images
-            ]
+        
+        #----------------------------------------------------------------
 
+        
+        # if do_resize:
+        #     images = [
+        #         self.resize(image=image, size=size_dict, resample=resample, input_data_format=input_data_format)
+        #         for image in images
+        #     ]
+        char_images = [
+            self.create_char_images(image=image, resample=resample, input_data_format=input_data_format)\
+            for image in images
+        ]
         if do_rescale:
             images = [
                 self.rescale(image=image, scale=rescale_factor, input_data_format=input_data_format)
-                for image in images
+                for image in char_images
             ]
 
         if do_normalize:
@@ -527,8 +591,15 @@ __all__ = ["ViTImageProcessor", "CharImageProcessor"]
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
+    from PIL import Image
+    import cv2
     image_processor = CharImageProcessor(do_normalize=True, do_rescale=True, do_resize=True, image_mean=[0.5,0.5,0.5],
                                     image_std = [0.5,0.5,0.5], resample=2, size=384,
                                     )
-    res = image_processor.create_char_images()
-    
+    # res = image_processor.create_char_images(np.random.rand(3, 488,512))
+    # image = Image.open("/home/app/ocr/kientdt/CharOCR/test_images/GSK3.png").convert("RGB")
+    image = cv2.imread("/home/app/ocr/kientdt/CharOCR/test_images/GSK3.png")
+    image = np.transpose(image, (2,0,1))
+    device = 'cuda'
+    pixel_values = image_processor(image, return_tensors="pt").pixel_values.to(device)
+    print(pixel_values.shape)
