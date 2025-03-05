@@ -14,6 +14,14 @@
 # limitations under the License.
 """Image processor class for ViT."""
 
+import sys
+import os
+
+__dir__ = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(__dir__)
+sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "..")))
+from char_splitting.char_splitting import Character_Splitting
+
 from typing import Dict, List, Optional, Union
 
 import numpy as np
@@ -318,6 +326,8 @@ class CharImageProcessor(BaseImageProcessor):
         self.image_mean = image_mean if image_mean is not None else IMAGENET_STANDARD_MEAN
         self.image_std = image_std if image_std is not None else IMAGENET_STANDARD_STD
         self.do_convert_rgb = do_convert_rgb
+        self.char_splitter = Character_Splitting(10)
+        
     def resize(
         self,
         image: np.ndarray,
@@ -387,13 +397,23 @@ class CharImageProcessor(BaseImageProcessor):
 
         #     cropped_image = image[:, start_h:start_h + crop_h, start_w:start_w + crop_w]
         #     cropped_images.append(cropped_image)
-        cropped_images.append(image[:,:,0:38])
-        cropped_images.append(image[:,:,40:50])
-        cropped_images.append(image[:,:,50:75])
-        cropped_images.append(image[:,:,75:95])
-        cropped_images.append(image[:,:,95:135])
+        # cropped_images.append(image[:,:,0:38])
+        # cropped_images.append(image[:,:,40:50])
+        # cropped_images.append(image[:,:,50:75])
+        # cropped_images.append(image[:,:,75:95])
+        # cropped_images.append(image[:,:,95:135])
     
-        return cropped_images
+        # return cropped_images
+        boxes = self.char_splitter.extract_characters(image)
+        img_for_cropping = np.transpose(image, (1, 2, 0))
+        cropped_characters = []
+        for (x1, y1, x2, y2) in boxes:
+            crop = img_for_cropping[y1:y2, x1:x2]
+            crop = np.transpose(crop, (2,0,1))
+            cropped_characters.append(crop)
+
+        return cropped_characters
+
         # return [np.random.rand(3, 10,30),np.random.rand(3, 15,20), np.random.rand(3, 20,40), np.random.rand(3, 16,48),np.random.rand(3, 27,48) ]
     
     def _padding_square_image(self, image, value=255):
@@ -543,7 +563,6 @@ class CharImageProcessor(BaseImageProcessor):
         images = [to_numpy_array(image) for image in images]
 
         images = self.format_input(images)
-        print(images[0].shape)
 
         if do_rescale and is_scaled_image(images[0]):
             logger.warning_once(
@@ -564,7 +583,7 @@ class CharImageProcessor(BaseImageProcessor):
         #         for image in images
         #     ]
         char_images = [
-            self.create_char_images(image=image, resample=resample, input_data_format=input_data_format)\
+            self.create_char_images(image=image, image_size = [16,240] , resample=resample, input_data_format=input_data_format)\
             for image in images
         ]
         if do_rescale:
