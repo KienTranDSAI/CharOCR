@@ -21,12 +21,17 @@ class Character_Splitting:
         # Convert image array from shape (3, height, width) to (height, width, 3)
         img = np.transpose(img_array, (1, 2, 0))
         img_height, img_width, _ = img.shape
+        
+        
+        
+        
         # Convert to grayscale if it is a color image
         if img.shape[2] == 3:
             img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
         
         # Apply thresholding to create binary image
-        _, binary = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY_INV)
+        # _, binary = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY_INV)
+        _, binary = cv2.threshold(img, 250, 255, cv2.THRESH_BINARY_INV)
         
         # Find connected components (the characters)
         labels = measure.label(binary, connectivity=2)
@@ -58,7 +63,7 @@ class Character_Splitting:
             characters.append(char_img)
         
         # Expand and merge bounding boxes
-        merged_boxes = self.expand_and_merge_boxes(bounding_boxes, img_height, iou_threshold=0.2)
+        merged_boxes = self.expand_and_merge_boxes(bounding_boxes, img_height, iou_threshold=0.1)
         if self.return_cropped_img:
             return merged_boxes, characters
         return merged_boxes

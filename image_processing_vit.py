@@ -16,6 +16,7 @@
 
 import sys
 import os
+import torch
 
 __dir__ = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(__dir__)
@@ -312,6 +313,10 @@ class CharImageProcessor(BaseImageProcessor):
         image_mean: Optional[Union[float, List[float]]] = None,
         image_std: Optional[Union[float, List[float]]] = None,
         do_convert_rgb: Optional[bool] = None,
+        min_area_character = 10,
+        is_concatenate_character = False,
+        character_size = [64,64],
+        max_text_length = 25,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -326,7 +331,11 @@ class CharImageProcessor(BaseImageProcessor):
         self.image_mean = image_mean if image_mean is not None else IMAGENET_STANDARD_MEAN
         self.image_std = image_std if image_std is not None else IMAGENET_STANDARD_STD
         self.do_convert_rgb = do_convert_rgb
-        self.char_splitter = Character_Splitting(10)
+        self.min_area_character = min_area_character
+        self.char_splitter = Character_Splitting(self.min_area_character)
+        self.is_concatenate_character = is_concatenate_character
+        self.character_size = character_size
+        self.max_text_length = max_text_length
         
     def resize(
         self,
@@ -491,7 +500,7 @@ class CharImageProcessor(BaseImageProcessor):
         input_data_format = None,
         padding_value = 255
         ):
-
+        print(image.shape)
         char_images = self.get_char_images(image)
 
         padded_images = self.padding_images(char_images, value=padding_value)
@@ -501,6 +510,7 @@ class CharImageProcessor(BaseImageProcessor):
         ]
         res = self.concatenate_image(resized_images,image_size = image_size)
         return res
+        # return res, padded_images, char_images
     def format_input(
         self,
         images,
@@ -518,7 +528,7 @@ class CharImageProcessor(BaseImageProcessor):
             else:
                 raise ValueError("Image does not contain exactly 3 channels.")
         return converted_images
-    @filter_out_non_signature_kwargs()
+    @filter_out_non_signature_kwargs(extra = ["is_concatenate_character"])
     def preprocess(
         self,
         images: ImageInput,
@@ -534,6 +544,9 @@ class CharImageProcessor(BaseImageProcessor):
         data_format: Union[str, ChannelDimension] = ChannelDimension.FIRST,
         input_data_format: Optional[Union[str, ChannelDimension]] = None,
         do_convert_rgb: Optional[bool] = None,
+        is_concatenate_character = None,
+        character_size = None,
+        max_text_length = None,
     ):
         
         
@@ -545,7 +558,10 @@ class CharImageProcessor(BaseImageProcessor):
         image_mean = image_mean if image_mean is not None else self.image_mean
         image_std = image_std if image_std is not None else self.image_std
         do_convert_rgb = do_convert_rgb if do_convert_rgb is not None else self.do_convert_rgb
-        
+        character_size = character_size if character_size is not None else self.character_size
+        max_text_length = max_text_length if max_text_length is not None else self.max_text_length
+        is_concatenate_character = is_concatenate_character if is_concatenate_character is not None else self.is_concatenate_character
+
         size = size if size is not None else self.size
         size_dict = get_size_dict(size)
 
@@ -582,8 +598,9 @@ class CharImageProcessor(BaseImageProcessor):
         #         self.resize(image=image, size=size_dict, resample=resample, input_data_format=input_data_format)
         #         for image in images
         #     ]
+        image_size = [character_size[0], character_size[1]*max_text_length]
         char_images = [
-            self.create_char_images(image=image, image_size = [16,240] , resample=resample, input_data_format=input_data_format)\
+            self.create_char_images(image=image, image_size = image_size,char_image_size = character_size , resample=resample, input_data_format=input_data_format)\
             for image in images
         ]
         if do_rescale:
@@ -602,8 +619,15 @@ class CharImageProcessor(BaseImageProcessor):
             to_channel_dimension_format(image, data_format, input_channel_dim=input_data_format) for image in images
         ]
 
-
-
+        B,S = len(images),max_text_length
+        C,H,W = images[0].shape
+        # print(is_concatenate_character)
+        if not is_concatenate_character:
+            images = torch.Tensor(images)
+            images = images.reshape([B,C,H,S,W//S])
+            images = images.permute(0, 3, 1, 2, 4)
+            images = images.contiguous().view(B * S, C,H,W//S)
+        
         data = {"pixel_values": images}
         return BatchFeature(data=data, tensor_type=return_tensors)
 __all__ = ["ViTImageProcessor", "CharImageProcessor"]
